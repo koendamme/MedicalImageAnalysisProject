@@ -1,3 +1,4 @@
+import numpy as np
 import monai
 import glob
 import os
@@ -25,7 +26,6 @@ class ACDCDataset(monai.data.Dataset):
             self.load_patient(patient_paths)
 
     def load_patient(self, patient_paths):
-
         for combi in [(1, 2), (3, 4)]:
             image = sitk.ReadImage(patient_paths[combi[0]])
             image_array = sitk.GetArrayFromImage(image)
@@ -42,10 +42,18 @@ class ACDCDataset(monai.data.Dataset):
 
     def __getitem__(self, index):
         # Make getitem return a dictionary with keys ['img', 'label'] for the image and label respectively
-        image = self.data[index][0]
+        item = self.data[index]
         if self.transform:
-            image = self.transform(image)
-        return None
+            item = self.transform(item)
+        return item
+
+    def get_total_meansd(self):
+        norm = []
+        for x in self.data:
+          norm.append(x["img"])
+
+        norm = np.array(norm)
+        return np.mean(norm), np.std(norm)
 
     def __len__(self):
         return len(self.data)
