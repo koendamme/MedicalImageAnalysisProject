@@ -1,3 +1,4 @@
+import numpy as np
 from tqdm import tqdm
 import monai
 import torch
@@ -7,6 +8,10 @@ from custom_transforms import GroundTruthTransform
 import json
 from datetime import datetime
 import wandb
+from custom_loss import CoshDiceLoss
+import math
+import matplotlib.pyplot as plt
+from PIL import Image
 
 
 def log_data(data):
@@ -17,7 +22,16 @@ def log_data(data):
 
 def wandb_masks(mask_output, mask_gt):
     """ Function that generates a mask dictionary in format that W&B requires """
+    sigmoid = torch.nn.Sigmoid()
+    mask_output = sigmoid(mask_output)
+    class0 = mask_output[0, :, :]
+    class1 = mask_output[1, :, :]
+    class2 = mask_output[2, :, :]
+    class3 = mask_output[3, :, :]
+
     mask_output = torch.argmax(mask_output, dim=0)
+    print(torch.max(mask_output))
+
     mask_gt = torch.argmax(mask_gt, dim=0)
 
     # Transform masks to numpy arrays on CPU
@@ -39,8 +53,12 @@ def log_to_wandb(epoch, train_loss, val_loss, batch_data, outputs):
     """ Function that logs ongoing training variables to W&B """
 
     # Create list of images that have segmentation masks for model output and ground truth
-    log_imgs = [wandb.Image(img, masks=wandb_masks(mask_output, mask_gt)) for img, mask_output,
-                mask_gt in zip(batch_data['img'], outputs, batch_data['mask'])]
+    log_imgs = []
+    for img, mask_output, mask_gt in zip(batch_data['img'], outputs, batch_data['mask']):
+        masks = wandb_masks(mask_output, mask_gt)
+        log_img = wandb.Image(img, masks=masks)
+
+        log_imgs.append(log_img)
 
     # Send epoch, losses and images to W&B
     wandb.log({'epoch': epoch, 'train_loss': train_loss, 'val_loss': val_loss, 'results': log_imgs})
@@ -55,7 +73,7 @@ def train_model(model, train_loader, val_loader, device, loss_function, optimize
         step = 0
         print("Training...")
         for batch in tqdm(train_loader):
-            step +=1
+            step += 1
             x_batch = batch['img'].to(device)
             y_batch = batch['mask'].to(device)
 
@@ -79,11 +97,10 @@ def train_model(model, train_loader, val_loader, device, loss_function, optimize
             step += 1
             outputs = model(x_batch)
             loss = loss_function(outputs, y_batch)
-            l = loss.item()
             val_loss += loss.item()
 
         val_loss = val_loss/step
-
+        print(f"{epoch}: Training/Validation loss: {train_loss:.4f}/{val_loss:.4f}")
         log_to_wandb(epoch, train_loss, val_loss, batch, outputs)
 
     return model
@@ -101,7 +118,7 @@ if __name__ == '__main__':
 
     transforms = monai.transforms.Compose([
         monai.transforms.AddChanneld(keys=['img', 'mask']),
-        monai.transforms.NormalizeIntensityd(keys='img', subtrahend=67.27, divisor=84.66),
+        # monai.transforms.NormalizeIntensityd(keys='img', subtrahend=67.27, divisor=84.66),
         monai.transforms.Resized(keys=['img', 'mask'], spatial_size=(200, 200)),
         GroundTruthTransform()
     ])
@@ -124,13 +141,17 @@ if __name__ == '__main__':
         num_res_units=2,
     ).to(device)
 
-    loss_function = monai.losses.DiceLoss(sigmoid=True, batch=True)
+    # loss_function = monai.losses.DiceLoss(sigmoid=True, batch=True, include_background=False)
+    # loss_function = monai.losses.DiceCELoss(sigmoid=True, batch=True)
+    loss_function = monai.losses.DiceFocalLoss(sigmoid=True, batch=True, include_background=False)
+
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
     wandb.login()
+    now = datetime.now().strftime("%Y%m%d-%H%M%S")
     run = wandb.init(
         project='ACDC Project',
-        name='Test run',
+        name=f'Test run at {now}',
         config={
             'loss function': str(loss_function),
             'lr': optimizer.param_groups[0]["lr"],
@@ -140,9 +161,9 @@ if __name__ == '__main__':
 
     run_id = run.id
 
-    trained = train_model(model, train_loader, test_loader, device, loss_function, optimizer, 40)
+    trained = train_model(model, train_loader, test_loader, device, loss_function, optimizer, 30)
 
-    torch.save(trained.state_dict(), r'trainedUNet2.pt')
+    torch.save(trained.state_dict(), r'trainedUNet3.pt')
     run.finish()
 
 
