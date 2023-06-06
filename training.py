@@ -67,7 +67,6 @@ def log_to_wandb(epoch, train_loss, val_loss, batch_data, outputs):
 def train_model(model, train_loader, val_loader, device, loss_function, optimizer, num_epochs):
     for epoch in range(num_epochs):
         print(f"Epoch: {epoch+1}/{num_epochs}")
-
         model.train()
         train_loss = 0
         step = 0
@@ -143,7 +142,7 @@ if __name__ == '__main__':
 
     # loss_function = monai.losses.DiceLoss(sigmoid=True, batch=True, include_background=False)
     # loss_function = monai.losses.DiceCELoss(sigmoid=True, batch=True)
-    loss_function = monai.losses.DiceFocalLoss(sigmoid=True, batch=True, include_background=False)
+    loss_function = monai.losses.DiceFocalLoss(sigmoid=True, batch=True)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
@@ -161,7 +160,7 @@ if __name__ == '__main__':
 
     run_id = run.id
 
-    trained = train_model(model, train_loader, test_loader, device, loss_function, optimizer, 30)
+    trained = train_model(model, train_loader, test_loader, device, loss_function, optimizer, 20)
 
     torch.save(trained.state_dict(), r'trainedUNet3.pt')
     run.finish()
