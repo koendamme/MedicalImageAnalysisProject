@@ -1,2 +1,9 @@
 /Resources/**
 
+/.idea/**
+/__pycache__/**
+
+**.ipynb
+
+/wandb/**
+**.pt
