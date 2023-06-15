@@ -59,9 +59,26 @@ def log_to_wandb(epoch, train_loss, val_loss, batch_data, outputs):
     wandb.log({'epoch': epoch, 'train_loss': train_loss, 'val_loss': val_loss, 'results': log_imgs})
 
 
-def train_model(dataset_path, device, loss_function, lr, num_epochs, transforms, channels):
+def train_model(dataset_path, device, loss_function, lr, num_epochs, channels):
     kfold = KFold(n_splits=5, shuffle=True)
     trained_models = []
+
+    pre_transforms = monai.transforms.Compose([
+        monai.transforms.AddChanneld(keys=['img', 'mask']),
+        GroundTruthTransform(),
+        monai.transforms.ScaleIntensityd(keys=['img'], minv=0, maxv=1)
+    ])
+
+    augmentations = monai.transforms.Compose([
+        monai.transforms.RandRotated(keys=['img', 'mask'], prob=.5),
+        monai.transforms.Rand2DElasticd(keys=['img', 'mask'], prob=.5, magnitude_range=(1, 2), spacing=(20, 20)),
+        monai.transforms.RandGaussianNoised(keys=['img'], prob=.5),
+        monai.transforms.RandAffined(keys=['img', 'mask'], prob=.5)
+    ])
+
+    post_transforms = monai.transforms.Compose([
+        monai.transforms.Resized(keys=['img', 'mask'], spatial_size=(200, 200))
+    ])
 
     for fold, (train_idx, val_idx) in enumerate(kfold.split(np.arange(100))):
         run = wandb.init(
@@ -87,8 +104,8 @@ def train_model(dataset_path, device, loss_function, lr, num_epochs, transforms,
 
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-        train_dataset = ACDCDataset(dataset_path, "training", train_idx, transform=transforms)
-        val_dataset = ACDCDataset(dataset_path, "training", val_idx, transform=transforms)
+        train_dataset = ACDCDataset(dataset_path, "training", train_idx, pre_transform=pre_transforms, augmentation=augmentations, post_transform=post_transforms)
+        val_dataset = ACDCDataset(dataset_path, "training", val_idx, pre_transform=pre_transforms, post_transform=post_transforms)
 
         train_loader = monai.data.DataLoader(train_dataset, batch_size=16, shuffle=True)
         val_loader = monai.data.DataLoader(val_dataset, batch_size=16, shuffle=True)
@@ -137,7 +154,7 @@ def train_model(dataset_path, device, loss_function, lr, num_epochs, transforms,
 
 
 if __name__ == '__main__':
-    data_path = "Resources/database"
+    data_path = "Resources"
 
     if not os.path.exists(data_path):
         print("Please update your data path to an existing folder.")
@@ -145,13 +162,6 @@ if __name__ == '__main__':
         print("Please update your data path to the correct folder (should contain train, val and test folders).")
     else:
         print("Congrats! You selected the correct folder :)")
-
-    transforms = monai.transforms.Compose([
-        monai.transforms.AddChanneld(keys=['img', 'mask']),
-        # monai.transforms.NormalizeIntensityd(keys='img', subtrahend=67.27, divisor=84.66),
-        monai.transforms.Resized(keys=['img', 'mask'], spatial_size=(200, 200)),
-        GroundTruthTransform()
-    ])
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f'The used device is {device}')
@@ -169,7 +179,6 @@ if __name__ == '__main__':
             loss_function=loss_function,
             lr=1e-3,
             num_epochs=20,
-            transforms=transforms,
             channels=(16, 32, 64, 128))
 
     for lr in [5e-4, 8e-4, 1e-3, 12e-4, 15e-4]:
@@ -179,7 +188,6 @@ if __name__ == '__main__':
             loss_function=dice_focal,
             lr=lr,
             num_epochs=20,
-            transforms=transforms,
             channels=(16, 32, 64, 128))
 
     channels = [
