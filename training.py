@@ -8,10 +8,9 @@ from custom_transforms import GroundTruthTransform
 import json
 from datetime import datetime
 import wandb
-from custom_loss import CoshDiceLoss
-import math
-import matplotlib.pyplot as plt
-from PIL import Image
+from sklearn.model_selection import KFold
+from eval_metrics import compute_metric
+
 
 
 def log_data(data):
@@ -24,10 +23,6 @@ def wandb_masks(mask_output, mask_gt):
     """ Function that generates a mask dictionary in format that W&B requires """
     sigmoid = torch.nn.Sigmoid()
     mask_output = sigmoid(mask_output)
-    class0 = mask_output[0, :, :]
-    class1 = mask_output[1, :, :]
-    class2 = mask_output[2, :, :]
-    class3 = mask_output[3, :, :]
 
     mask_output = torch.argmax(mask_output, dim=0)
     print(torch.max(mask_output))
@@ -64,49 +59,85 @@ def log_to_wandb(epoch, train_loss, val_loss, batch_data, outputs):
     wandb.log({'epoch': epoch, 'train_loss': train_loss, 'val_loss': val_loss, 'results': log_imgs})
 
 
-def train_model(model, train_loader, val_loader, device, loss_function, optimizer, num_epochs):
-    for epoch in range(num_epochs):
-        print(f"Epoch: {epoch+1}/{num_epochs}")
-        model.train()
-        train_loss = 0
-        step = 0
-        print("Training...")
-        for batch in tqdm(train_loader):
-            step += 1
-            x_batch = batch['img'].to(device)
-            y_batch = batch['mask'].to(device)
+def train_model(dataset_path, device, loss_function, lr, num_epochs, transforms, channels):
+    kfold = KFold(n_splits=5, shuffle=True)
+    trained_models = []
 
-            outputs = model(x_batch)
-            loss = loss_function(outputs, y_batch)
+    for fold, (train_idx, val_idx) in enumerate(kfold.split(np.arange(100))):
+        run = wandb.init(
+            project='ACDC Project',
+            name=f'Test run at {datetime.now().strftime("%Y%m%d-%H%M%S")}',
+            config={
+                'loss function': str(loss_function),
+                'lr': lr,
+                'batch_size': 16,
+            }
+        )
 
-            # Backpropagation
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            train_loss += loss.item()
-        train_loss = train_loss/step
+        run_id = run.id
 
-        step = 0
-        model.eval()
-        val_loss = 0
-        print("Validating...")
-        for batch in tqdm(val_loader):
-            x_batch = batch['img'].to(device)
-            y_batch = batch['mask'].to(device)
-            step += 1
-            outputs = model(x_batch)
-            loss = loss_function(outputs, y_batch)
-            val_loss += loss.item()
+        model = monai.networks.nets.UNet(
+            spatial_dims=2,
+            in_channels=1,
+            out_channels=4,
+            channels=channels,
+            strides=(2, 2, 2),
+            num_res_units=2,
+        ).to(device)
 
-        val_loss = val_loss/step
-        print(f"{epoch}: Training/Validation loss: {train_loss:.4f}/{val_loss:.4f}")
-        log_to_wandb(epoch, train_loss, val_loss, batch, outputs)
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-    return model
+        train_dataset = ACDCDataset(dataset_path, "training", train_idx, transform=transforms)
+        val_dataset = ACDCDataset(dataset_path, "training", val_idx, transform=transforms)
+
+        train_loader = monai.data.DataLoader(train_dataset, batch_size=16, shuffle=True)
+        val_loader = monai.data.DataLoader(val_dataset, batch_size=16, shuffle=True)
+
+        for epoch in range(num_epochs):
+            print(f"Epoch: {epoch+1}/{num_epochs}")
+            model.train()
+            train_loss = 0
+            step = 0
+            print("Training...")
+            for batch in tqdm(train_loader):
+                step += 1
+                x_batch = batch['img'].to(device)
+                y_batch = batch['mask'].to(device)
+
+                outputs = model(x_batch)
+                loss = loss_function(outputs, y_batch)
+
+                # Backpropagation
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                train_loss += loss.item()
+            train_loss = train_loss/step
+
+            step = 0
+            model.eval()
+            val_loss = 0
+            print("Validating...")
+            for batch in tqdm(val_loader):
+                x_batch = batch['img'].to(device)
+                y_batch = batch['mask'].to(device)
+                step += 1
+                outputs = model(x_batch)
+                loss = loss_function(outputs, y_batch)
+                val_loss += loss.item()
+
+            val_loss = val_loss/step
+            print(f"{epoch}: Training/Validation loss: {train_loss:.4f}/{val_loss:.4f}")
+            log_to_wandb(epoch, train_loss, val_loss, batch, outputs)
+
+        trained_models.append(model)
+        run.finish()
+
+    return trained_models
 
 
 if __name__ == '__main__':
-    data_path = "Resources"
+    data_path = "Resources/database"
 
     if not os.path.exists(data_path):
         print("Please update your data path to an existing folder.")
@@ -122,51 +153,50 @@ if __name__ == '__main__':
         GroundTruthTransform()
     ])
 
-    train_dataset = ACDCDataset(data_path, "training", transforms)
-    test_dataset = ACDCDataset(data_path, "testing", transforms)
-
-    train_loader = monai.data.DataLoader(train_dataset, batch_size=16, shuffle=True)
-    test_loader = monai.data.DataLoader(test_dataset, batch_size=16, shuffle=True)
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f'The used device is {device}')
 
-    model = monai.networks.nets.UNet(
-        spatial_dims=2,
-        in_channels=1,
-        out_channels=4,
-        channels=(16, 32, 64, 128),
-        strides=(2, 2, 2),
-        num_res_units=2,
-    ).to(device)
+    dice = monai.losses.DiceLoss(sigmoid=True, batch=True)
+    dice_ce = monai.losses.DiceCELoss(sigmoid=True, batch=True)
+    dice_focal = monai.losses.DiceFocalLoss(sigmoid=True, batch=True)
 
-    # loss_function = monai.losses.DiceLoss(sigmoid=True, batch=True, include_background=False)
-    # loss_function = monai.losses.DiceCELoss(sigmoid=True, batch=True)
-    loss_function = monai.losses.DiceFocalLoss(sigmoid=True, batch=True)
+    wandb.login(key="02febfddb1e6757681c2f1e1257c49e0b3d57bc9")
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    for loss_function in [dice, dice_ce, dice_focal]:
+        _ = train_model(
+            dataset_path=data_path,
+            device=device,
+            loss_function=loss_function,
+            lr=1e-3,
+            num_epochs=20,
+            transforms=transforms,
+            channels=(16, 32, 64, 128))
 
-    wandb.login()
-    now = datetime.now().strftime("%Y%m%d-%H%M%S")
-    run = wandb.init(
-        project='ACDC Project',
-        name=f'Test run at {now}',
-        config={
-            'loss function': str(loss_function),
-            'lr': optimizer.param_groups[0]["lr"],
-            'batch_size': train_loader.batch_size,
-        }
-    )
+    for lr in [5e-4, 8e-4, 1e-3, 12e-4, 15e-4]:
+        _ = train_model(
+            dataset_path=data_path,
+            device=device,
+            loss_function=dice_focal,
+            lr=lr,
+            num_epochs=20,
+            transforms=transforms,
+            channels=(16, 32, 64, 128))
 
-    run_id = run.id
+    channels = [
+        (32, 64, 128, 256),
+        (16, 32, 64, 128),
+        (32, 64, 128, 256),
+        (16, 32, 64, 128),
+        (32, 64, 128, 256),
+        (16, 32, 64, 128)
+    ]
 
-    trained = train_model(model, train_loader, test_loader, device, loss_function, optimizer, 20)
-
-    torch.save(trained.state_dict(), r'trainedUNet3.pt')
-    run.finish()
-
-
-
-
-
-
+    for channel in channels:
+        _ = train_model(
+            dataset_path=data_path,
+            device=device,
+            loss_function=dice_focal,
+            lr=lr,
+            num_epochs=20,
+            transforms=transforms,
+            channels=channel)

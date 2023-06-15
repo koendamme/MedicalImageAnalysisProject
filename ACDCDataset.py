@@ -6,13 +6,14 @@ import SimpleITK as sitk
 
 
 class ACDCDataset(monai.data.Dataset):
-    def __init__(self, rootpath, mode, transform=None):
+    def __init__(self, rootpath, mode, split_idxs, transform=None):
         if mode not in ["training", "testing"]:
             raise Exception(
-                "must be either training or testing for the dataset to be loaded"
+                "must be either training, testing or cross for the dataset to be loaded"
             )
 
         self.path = os.path.join(rootpath, mode)
+        self.split_idxs = split_idxs
         self.transform = transform
         self.data = []
         self.load_data()
@@ -23,7 +24,8 @@ class ACDCDataset(monai.data.Dataset):
         """
         returns dict{2dimg, 2dmask}
         """
-        for patient in next(os.walk(self.path))[1]:
+
+        for patient in np.array(next(os.walk(self.path))[1])[self.split_idxs]:
             patient_paths = glob.glob(os.path.join(self.path, patient, "*.gz"))
 
             patient_paths.sort()
@@ -38,9 +40,7 @@ class ACDCDataset(monai.data.Dataset):
             mask_array = sitk.GetArrayFromImage(mask)
 
             for i in range(image_array.shape[0]):
-                dictionary = {}
-                dictionary["img"] = image_array[i, :, :]
-                dictionary["mask"] = mask_array[i, :, :]
+                dictionary = {"img": image_array[i, :, :], "mask": mask_array[i, :, :]}
 
                 self.data.append(dictionary)
 
