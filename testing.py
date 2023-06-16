@@ -47,6 +47,8 @@ if __name__ == '__main__':
     dice = {"ES": [[], [], [], []], "ED": [[], [], [], []]}
     hausdorff = {"ES": [[], [], [], []], "ED": [[], [], [], []]}
 
+    n_classes = 4
+
     for batch in dataloader:
         img = batch["img"]
         gt = batch["mask"]
@@ -60,7 +62,6 @@ if __name__ == '__main__':
 
             output_mask = torch.argmax(output, dim=1)[None, :, :, :]
 
-            n_classes = 4
             for class_idx in range(n_classes):
                 gt_class_mask = gt_slice == class_idx
                 output_class_mask = output_mask == class_idx
@@ -71,7 +72,7 @@ if __name__ == '__main__':
                 dice[vol][class_idx].append(class_dice.item())
                 hausdorff[vol][class_idx].append(class_hausdorff.item())
 
-    for i in range(4):
+    for i in range(n_classes):
         for vol in ["ED", "ES"]:
             for metric in ["Dice", "Hausdorff"]:
                 metrics[vol][metric][i] = sum(dice[vol][i])/len(dice[vol][i])
