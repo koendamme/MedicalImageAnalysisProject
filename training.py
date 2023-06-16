@@ -9,7 +9,6 @@ import json
 from datetime import datetime
 import wandb
 from sklearn.model_selection import KFold
-from eval_metrics import compute_metric
 
 
 
@@ -25,13 +24,10 @@ def wandb_masks(mask_output, mask_gt):
     mask_output = sigmoid(mask_output)
 
     mask_output = torch.argmax(mask_output, dim=0)
-    print(torch.max(mask_output))
 
     mask_gt = torch.argmax(mask_gt, dim=0)
 
     # Transform masks to numpy arrays on CPU
-    # Note: .squeeze() removes all dimensions with a size of 1 (here, it makes the tensors 2-dimensional)
-    # Note: .detach() removes a tensor from the computational graph to prevent gradient computation for it
     mask_output = mask_output.squeeze().detach().cpu().numpy()
     mask_gt = mask_gt.squeeze().detach().cpu().numpy()
 
@@ -154,7 +150,7 @@ def train_model(dataset_path, device, loss_function, lr, num_epochs, channels):
 
 
 if __name__ == '__main__':
-    data_path = "Resources"
+    data_path = "Resources/database"
 
     if not os.path.exists(data_path):
         print("Please update your data path to an existing folder.")
@@ -204,7 +200,6 @@ if __name__ == '__main__':
             dataset_path=data_path,
             device=device,
             loss_function=dice_focal,
-            lr=lr,
+            lr=1e-3,
             num_epochs=20,
-            transforms=transforms,
             channels=channel)

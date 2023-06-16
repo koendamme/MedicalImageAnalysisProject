@@ -9,7 +9,7 @@ class ACDCDataset(monai.data.Dataset):
     def __init__(self,
                  rootpath,
                  mode,
-                 split_idxs,
+                 split_idxs=None,
                  pre_transform=None,
                  augmentation=None,
                  post_transform=None):
@@ -18,7 +18,7 @@ class ACDCDataset(monai.data.Dataset):
             raise Exception(
                 "must be either training, testing or cross for the dataset to be loaded"
             )
-
+        self.mode = mode
         self.path = os.path.join(rootpath, mode)
         self.split_idxs = split_idxs
         self.pre_transform = pre_transform
@@ -34,7 +34,11 @@ class ACDCDataset(monai.data.Dataset):
         returns dict{2dimg, 2dmask}
         """
 
-        for patient in np.array(next(os.walk(self.path))[1])[self.split_idxs]:
+        directories = np.array(next(os.walk(self.path))[1])
+        if self.split_idxs is not None:
+            directories = directories[self.split_idxs]
+
+        for patient in directories:
             patient_paths = glob.glob(os.path.join(self.path, patient, "*.gz"))
 
             patient_paths.sort()
@@ -48,10 +52,16 @@ class ACDCDataset(monai.data.Dataset):
             mask = sitk.ReadImage(patient_paths[combi[1]])
             mask_array = sitk.GetArrayFromImage(mask)
 
-            for i in range(image_array.shape[0]):
-                dictionary = {"img": image_array[i, :, :], "mask": mask_array[i, :, :]}
+            if self.mode == "training":
+                for i in range(image_array.shape[0]):
+                    dictionary = {"img": image_array[i, :, :], "mask": mask_array[i, :, :]}
 
-                self.data.append(dictionary)
+                    self.data.append(dictionary)
+            else:
+                if combi[0] == 1:
+                    self.data.append({"img": image_array, "mask": mask_array, "vol": "ED"})
+                else:
+                    self.data.append({"img": image_array, "mask": mask_array, "vol": "ES"})
 
     def _perform_pre_transform(self):
         if not self.pre_transform:
