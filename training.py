@@ -141,7 +141,7 @@ def train_model(dataset_path, device, loss_function, lr, num_epochs, channels, n
                 val_loss += loss.item()
 
                 dice_loss = dice_loss_function(outputs, y_batch)
-                val_dice_loss = dice_loss.item()
+                val_dice_loss += dice_loss.item()
 
             val_loss = val_loss/step
             val_dice_loss = val_dice_loss/step
@@ -180,7 +180,7 @@ if __name__ == '__main__':
             loss_function=loss_function,
             lr=1e-3,
             num_epochs=20,
-            channels=(16, 32, 64, 128))
+            channels=(16, 32, 64, 128), n_res_units=2)
     #
     # for lr in [5e-4, 8e-4, 1e-3, 12e-4]:
     # for lr in [12e-4]:
