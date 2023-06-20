@@ -55,7 +55,7 @@ def log_to_wandb(epoch, train_loss, val_loss, batch_data, outputs):
     wandb.log({'epoch': epoch, 'train_loss': train_loss, 'val_loss': val_loss, 'results': log_imgs})
 
 
-def train_model(dataset_path, device, loss_function, lr, num_epochs, channels):
+def train_model(dataset_path, device, loss_function, lr, num_epochs, channels, n_res_units):
     kfold = KFold(n_splits=5, shuffle=True)
     trained_models = []
 
@@ -79,7 +79,7 @@ def train_model(dataset_path, device, loss_function, lr, num_epochs, channels):
     for fold, (train_idx, val_idx) in enumerate(kfold.split(np.arange(100))):
         run = wandb.init(
             project='ACDC Project',
-            name=f'Test run at {datetime.now().strftime("%Y%m%d-%H%M%S")}',
+            name=f'Test run at {datetime.now().strftime("%Y%m%d-%H%M%S")} with {channels.__str__()}, res: {n_res_units}',
             config={
                 'loss function': str(loss_function),
                 'lr': lr,
@@ -95,7 +95,7 @@ def train_model(dataset_path, device, loss_function, lr, num_epochs, channels):
             out_channels=4,
             channels=channels,
             strides=(2, 2, 2),
-            num_res_units=2,
+            num_res_units=n_res_units,
         ).to(device)
 
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -150,7 +150,7 @@ def train_model(dataset_path, device, loss_function, lr, num_epochs, channels):
 
 
 if __name__ == '__main__':
-    data_path = "Resources/database"
+    data_path = "Resources"
 
     if not os.path.exists(data_path):
         print("Please update your data path to an existing folder.")
@@ -168,38 +168,38 @@ if __name__ == '__main__':
 
     wandb.login(key="02febfddb1e6757681c2f1e1257c49e0b3d57bc9")
 
-    for loss_function in [dice, dice_ce, dice_focal]:
-        _ = train_model(
-            dataset_path=data_path,
-            device=device,
-            loss_function=loss_function,
-            lr=1e-3,
-            num_epochs=20,
-            channels=(16, 32, 64, 128))
-
-    for lr in [5e-4, 8e-4, 1e-3, 12e-4, 15e-4]:
+    # for loss_function in [dice, dice_ce, dice_focal]:
+    #     _ = train_model(
+    #         dataset_path=data_path,
+    #         device=device,
+    #         loss_function=loss_function,
+    #         lr=1e-3,
+    #         num_epochs=20,
+    #         channels=(16, 32, 64, 128))
+    #
+    # for lr in [5e-4, 8e-4, 1e-3, 12e-4]:
+    for lr in [12e-4]:
         _ = train_model(
             dataset_path=data_path,
             device=device,
             loss_function=dice_focal,
             lr=lr,
             num_epochs=20,
-            channels=(16, 32, 64, 128))
+            channels=(16, 32, 64, 128),
+            n_res_units=2)
 
-    channels = [
-        (32, 64, 128, 256),
-        (16, 32, 64, 128),
-        (32, 64, 128, 256),
-        (16, 32, 64, 128),
-        (32, 64, 128, 256),
-        (16, 32, 64, 128)
-    ]
-
-    for channel in channels:
-        _ = train_model(
-            dataset_path=data_path,
-            device=device,
-            loss_function=dice_focal,
-            lr=1e-3,
-            num_epochs=20,
-            channels=channel)
+    # channels = [
+    #     # (32, 64, 128, 256),
+    #     (16, 32, 64, 128),
+    # ]
+    #
+    # for channel in channels:
+    #     for n_res in [2, 5]:
+    #         _ = train_model(
+    #             dataset_path=data_path,
+    #             device=device,
+    #             loss_function=dice_focal,
+    #             lr=1e-3,
+    #             num_epochs=20,
+    #             channels=channel,
+    #             n_res_units=n_res)
