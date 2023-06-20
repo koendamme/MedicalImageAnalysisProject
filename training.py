@@ -11,7 +11,6 @@ import wandb
 from sklearn.model_selection import KFold
 
 
-
 def log_data(data):
     now = datetime.now().strftime("%Y%m%d-%H%M%S")
     with open(f"training_log/{now}.json", 'w') as f:
@@ -40,7 +39,7 @@ def wandb_masks(mask_output, mask_gt):
     return masks
 
 
-def log_to_wandb(epoch, train_loss, val_loss, batch_data, outputs):
+def log_to_wandb(epoch, train_loss, val_loss, batch_data, outputs, dice_loss=None):
     """ Function that logs ongoing training variables to W&B """
 
     # Create list of images that have segmentation masks for model output and ground truth
@@ -52,12 +51,13 @@ def log_to_wandb(epoch, train_loss, val_loss, batch_data, outputs):
         log_imgs.append(log_img)
 
     # Send epoch, losses and images to W&B
-    wandb.log({'epoch': epoch, 'train_loss': train_loss, 'val_loss': val_loss, 'results': log_imgs})
+    wandb.log({'epoch': epoch, 'train_loss': train_loss, 'val_loss': val_loss, 'results': log_imgs, 'dice_loss': dice_loss})
 
 
 def train_model(dataset_path, device, loss_function, lr, num_epochs, channels, n_res_units):
     kfold = KFold(n_splits=5, shuffle=True)
     trained_models = []
+    dice_loss_function = monai.losses.DiceLoss(sigmoid=True, batch=True)
 
     pre_transforms = monai.transforms.Compose([
         monai.transforms.AddChanneld(keys=['img', 'mask']),
@@ -130,6 +130,7 @@ def train_model(dataset_path, device, loss_function, lr, num_epochs, channels, n
             step = 0
             model.eval()
             val_loss = 0
+            val_dice_loss = 0
             print("Validating...")
             for batch in tqdm(val_loader):
                 x_batch = batch['img'].to(device)
@@ -139,9 +140,13 @@ def train_model(dataset_path, device, loss_function, lr, num_epochs, channels, n
                 loss = loss_function(outputs, y_batch)
                 val_loss += loss.item()
 
+                dice_loss = dice_loss_function(outputs, y_batch)
+                val_dice_loss = dice_loss.item()
+
             val_loss = val_loss/step
+            val_dice_loss = val_dice_loss/step
             print(f"{epoch}: Training/Validation loss: {train_loss:.4f}/{val_loss:.4f}")
-            log_to_wandb(epoch, train_loss, val_loss, batch, outputs)
+            log_to_wandb(epoch, train_loss, val_loss, batch, outputs, val_dice_loss)
 
         trained_models.append(model)
         run.finish()
@@ -168,25 +173,25 @@ if __name__ == '__main__':
 
     wandb.login(key="02febfddb1e6757681c2f1e1257c49e0b3d57bc9")
 
-    # for loss_function in [dice, dice_ce, dice_focal]:
-    #     _ = train_model(
-    #         dataset_path=data_path,
-    #         device=device,
-    #         loss_function=loss_function,
-    #         lr=1e-3,
-    #         num_epochs=20,
-    #         channels=(16, 32, 64, 128))
-    #
-    # for lr in [5e-4, 8e-4, 1e-3, 12e-4]:
-    for lr in [12e-4]:
+    for loss_function in [dice_ce, dice_focal]:
         _ = train_model(
             dataset_path=data_path,
             device=device,
-            loss_function=dice_focal,
-            lr=lr,
+            loss_function=loss_function,
+            lr=1e-3,
             num_epochs=20,
-            channels=(16, 32, 64, 128),
-            n_res_units=2)
+            channels=(16, 32, 64, 128))
+    #
+    # for lr in [5e-4, 8e-4, 1e-3, 12e-4]:
+    # for lr in [12e-4]:
+    #     _ = train_model(
+    #         dataset_path=data_path,
+    #         device=device,
+    #         loss_function=dice_focal,
+    #         lr=lr,
+    #         num_epochs=20,
+    #         channels=(16, 32, 64, 128),
+    #         n_res_units=2)
 
     # channels = [
     #     # (32, 64, 128, 256),
