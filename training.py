@@ -79,7 +79,7 @@ def train_model(dataset_path, device, loss_function, lr, num_epochs, channels, n
     for fold, (train_idx, val_idx) in enumerate(kfold.split(np.arange(100))):
         run = wandb.init(
             project='ACDC Project',
-            name=f'Test run at {datetime.now().strftime("%Y%m%d-%H%M%S")} with {channels.__str__()}, res: {n_res_units}',
+            name=f'Test run at {datetime.now().strftime("%Y%m%d-%H%M%S")} with {channels.__str__()}, res: {n_res_units} for final model',
             config={
                 'loss function': str(loss_function),
                 'lr': lr,
@@ -100,11 +100,23 @@ def train_model(dataset_path, device, loss_function, lr, num_epochs, channels, n
 
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-        train_dataset = ACDCDataset(dataset_path, "training", train_idx, pre_transform=pre_transforms, augmentation=augmentations, post_transform=post_transforms)
-        val_dataset = ACDCDataset(dataset_path, "training", val_idx, pre_transform=pre_transforms, post_transform=post_transforms)
+        train_dataset = ACDCDataset(
+            rootpath=dataset_path,
+            mode="training",
+            pre_transform=pre_transforms,
+            split_idxs=train_idx,
+            augmentation=augmentations,
+            post_transform=post_transforms)
+
+        test_dataset = ACDCDataset(
+            rootpath=dataset_path,
+            mode="training",
+            pre_transform=pre_transforms,
+            split_idxs=val_idx,
+            post_transform=post_transforms)
 
         train_loader = monai.data.DataLoader(train_dataset, batch_size=16, shuffle=True)
-        val_loader = monai.data.DataLoader(val_dataset, batch_size=16, shuffle=True)
+        test_loader = monai.data.DataLoader(test_dataset, batch_size=16, shuffle=True)
 
         for epoch in range(num_epochs):
             print(f"Epoch: {epoch+1}/{num_epochs}")
@@ -132,7 +144,7 @@ def train_model(dataset_path, device, loss_function, lr, num_epochs, channels, n
             val_loss = 0
             val_dice_loss = 0
             print("Validating...")
-            for batch in tqdm(val_loader):
+            for batch in tqdm(test_loader):
                 x_batch = batch['img'].to(device)
                 y_batch = batch['mask'].to(device)
                 step += 1
@@ -148,10 +160,11 @@ def train_model(dataset_path, device, loss_function, lr, num_epochs, channels, n
             print(f"{epoch}: Training/Validation loss: {train_loss:.4f}/{val_loss:.4f}")
             log_to_wandb(epoch, train_loss, val_loss, batch, outputs, val_dice_loss)
 
-        trained_models.append(model)
+    # trained_models.append(model)
+    #     torch.save(model.state_dict(), f"final_models/epoch{epoch}.pt")
         run.finish()
 
-    return trained_models
+    # return trained_models
 
 
 if __name__ == '__main__':
@@ -173,8 +186,16 @@ if __name__ == '__main__':
 
     wandb.login(key="02febfddb1e6757681c2f1e1257c49e0b3d57bc9")
 
+    # train_model(
+    #     dataset_path=data_path,
+    #     device=device,
+    #     loss_function=dice_focal,
+    #     lr=1e-3,
+    #     num_epochs=60,
+    #     channels=(32, 64, 128, 256), n_res_units=2)
+
     for loss_function in [dice_ce, dice_focal]:
-        _ = train_model(
+        train_model(
             dataset_path=data_path,
             device=device,
             loss_function=loss_function,

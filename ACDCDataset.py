@@ -14,7 +14,7 @@ class ACDCDataset(monai.data.Dataset):
                  augmentation=None,
                  post_transform=None):
 
-        if mode not in ["training", "testing"]:
+        if mode not in ["training", "testing", "final_testing"]:
             raise Exception(
                 "must be either training, testing or cross for the dataset to be loaded"
             )
@@ -52,7 +52,7 @@ class ACDCDataset(monai.data.Dataset):
             mask = sitk.ReadImage(patient_paths[combi[1]])
             mask_array = sitk.GetArrayFromImage(mask)
 
-            if self.mode == "training":
+            if self.mode == "training" or self.mode == "testing":
                 for i in range(image_array.shape[0]):
                     dictionary = {"img": image_array[i, :, :], "mask": mask_array[i, :, :]}
 
